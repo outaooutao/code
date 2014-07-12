@@ -1,0 +1,274 @@
+/*
+ * =====================================================================================
+ *
+ *       Filename:  trie_tree.cc
+ *
+ *    Description:  
+ *
+ *        Version:  1.0
+ *        Created:  06/19/2014 09:10:36 AM
+ *       Revision:  none
+ *       Compiler:  gcc
+ *
+ *         Author:  billowkiller (), billowkiller@gmail.com
+ *   Organization:  
+ *
+ * =====================================================================================
+ */
+
+#include "trie_tree.h"
+#include <algorithm>
+#include <sstream>
+#include <iterator>
+#include <iostream>
+
+TrieTree::
+TrieTree():root(new Node()){ }
+
+string TrieTree::
+vec2str(const vector<string> &vec) {
+	
+	std::ostringstream oss;
+
+	if (!vec.empty())
+	{
+		// Convert all but the last element to avoid a trailing " "
+		std::copy(vec.begin(), vec.end()-1,
+			std::ostream_iterator<string>(oss, " "));
+
+		// Now add the last element with no delimiter
+		oss << vec.back();
+	}
+
+	return oss.str();
+}
+
+/*
+ * we delete the last wildcards of rule to speedup the matching process.
+ * i.e. sid * *, we only need to insert sid into trie tree.
+ */
+void TrieTree::
+minimizeRule(string &s) {
+	for(int i=s.length()-1; i>=0; i--){
+		if(s[i]=='*' || s[i]==' ') 
+			s.erase(i, 1);
+		else break;
+	}
+}
+
+void TrieTree::
+minimizeRule(rule_type &rule) {
+	for(int i=rule.size()-1; i>=0; i--) {
+		if(rule[i] == "*") rule.erase(rule.begin()+i);
+		else break;
+	}
+}
+
+void TrieTree::
+killDescendants(weak_ptr<TrieTree::Node> node, bool self) {
+	printf("node->c = %c, node->use_count = %d\n", node.lock()->c, node.lock().use_count());
+	exit(0);
+	weak_ptr<TrieTree::Node> child = node.lock()->haschild();
+	if(child.expired() && self)
+	{
+		printf("node->c = %c, node->use_count = %d\n", node.lock()->c, node.lock().use_count());
+		node.reset();
+		exit(0);
+	} 
+	else 
+	{
+		while(!child.expired()) {
+			killDescendants(child, true);
+			child = node.lock()->haschild();
+		}
+	}
+}
+
+bool TrieTree::
+insertRule(string s, bool check_mini) {
+	
+	if(check_mini) minimizeRule(s);
+		
+	shared_ptr<TrieTree::Node> t = root;
+
+	const int len = s.length();
+	for(int i=0; i<len; i++) {
+		if(s[i] == ' ') {
+			t->isvalid = true;  
+			continue;
+		}
+		if(!isdigit(s[i]) && s[i]!='*') return false;
+
+		if(!t->getchild(s[i])) {
+			t->addchild(s[i]);
+		}
+		t = t->getchild(s[i]);
+
+		/*
+		 * 1. insert sid * * then sid type oid
+		 * --> once meet sid's isend, return true and forget remaining.
+		 * 2. insert sid type oid then sid * * 
+		 * --> set sid's isend, and delete the children.
+		 */
+		if(t->isend) return true; //case 1
+	}
+	t->isvalid= true;
+	t->isend= true;
+	//killDescendants(t); //case 2
+	return true;
+}
+
+bool TrieTree::
+insertRule(rule_type rule) {
+	minimizeRule(rule);
+	string key = vec2str(rule);
+	return insertRule(key, false);
+}
+
+TrieTree::Node* TrieTree::
+match(Node *t, const string &str) {
+	for(auto &ch : str) {
+		if(ch==' ') {
+			if(t->isvalid) continue;
+			else return NULL;
+		}
+		t = t->getchild(ch).get();
+		if(!t) return NULL;
+		if(t->isvalid && t->isend) return t;
+	}
+	if(!t->isvalid) return NULL;
+	else return t;
+}
+
+bool TrieTree::
+checkFinalNode(TrieTree::Node *t) {
+	if(t) return t->isend;
+	return false;
+}
+
+bool TrieTree::
+match_rule(const string &rule) {
+	return checkFinalNode(match(root.get(), rule));
+}
+
+bool TrieTree::
+match_tuple(const rule_type &rule) {
+	TrieTree::Node *t = root.get();
+	for(auto &s : rule) {
+		t = match(t, s);
+		if(t == NULL) return false;
+		if(t->isend) return true;
+	}
+	return t->isend;
+}
+
+bool TrieTree::
+hasChildren(Node* node) {
+	if(!node) return false;
+	return !node->haschild().expired();
+}
+
+/* 
+ * During delete operation we delete the key in bottom up manner using recursion. The following are possible conditions when deleting key from trie,
+ *
+ * 1. Key may not be there in trie. Delete operation should not modify trie.
+ * 2. Key present as unique key (no part of key contains another key (prefix), nor the key itself is prefix of another key in trie). Delete all the nodes.
+ * 3. Key is prefix key of another long key in trie. Unmark the leaf node.
+ * 4. Key present in trie, having atleast one other key as prefix key. Delete nodes from end of key until first leaf node of longest prefix key.
+ */
+bool TrieTree::
+deleteHelper(shared_ptr<Node> pNode, const string &key, int level) {
+	/*  for real delete */
+	if( pNode ) 
+	{
+        // Base case
+        if( level == key.length() ) 
+		{
+            if( pNode->isend ) 
+			{
+                // Unmark leaf node
+                pNode->isvalid = false;
+                pNode->isend = false;
+ 
+                // If empty, node to be deleted
+                if( !hasChildren(pNode.get()) )
+                {
+                    return true;
+                }
+ 
+                return false;
+            }
+        }
+        else // Recursive case
+        {
+			// jump and check validation
+			if( key[level] == ' ' ) 
+			{
+				level++;
+				if( !pNode->isvalid )
+					return false;
+				else
+					deleteHelper(pNode->getchild(key[level]), key, level+1);
+			}	
+            if( deleteHelper(pNode->getchild(key[level]), key, level+1) )
+            {
+                // last node marked, delete it
+                pNode->getchild(key[level]).reset();
+ 
+                // recursively climb up, and delete eligible nodes
+                return ( !pNode->isend && hasChildren(pNode.get()) );
+            }
+        }
+    }
+ 
+    return false;
+}
+
+/*
+ * For our purpose, we simply reset the isend flag; 
+ * The reason is to avoid malloc and free frequently and
+ * the extra space is not too much in our system.
+ * Just keeping coding and logical simple.
+ */
+bool TrieTree::
+deleteRule(string &key, bool real_delete) {
+	minimizeRule(key);
+
+	if(real_delete) 
+	{
+		return deleteHelper(root, key, 0);
+	} 
+	else 
+	{
+		TrieTree::Node *node = match(root.get(), key);
+		if(node && node->isend) 
+		{
+			node->isend = false;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool TrieTree::
+deleteRule(rule_type &rule, bool real_delete) {
+	string key = vec2str(rule);
+	return deleteRule(key, real_delete);
+}
+
+void TrieTree::
+destroyTree() {
+	printf("root %d\n", root.use_count()); 
+	weak_ptr<Node> weakNode(root);
+	printf("root %d\n", weakNode.lock().use_count()); 
+	killDescendants(weakNode, true);
+}
+
+int main() {
+	TrieTree tt;
+	tt.insertRule("13");
+	tt.insertRule("12");
+//	tt.destroyTree();
+
+	return 0;
+}
