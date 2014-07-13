@@ -7,10 +7,14 @@
 #define WSIZE 0x8000
 #define LIT_BUFSIZE 0x8000
 //compile:gcc acch.c `pkg-config --cflags --libs glib-2.0` -o acch -w
+
+typedef unsigned char uch;
+typedef unsigned short ush;
+
 char window[WSIZE];
 int st[WSIZE];//012  Match ,Check,Uncheck
-l_buf[LIT_BUFSIZE];
-d_buf[LIT_BUFSIZE];
+uch l_buf[LIT_BUFSIZE];
+ush d_buf[LIT_BUFSIZE];
 int last_lit;
 
 
@@ -154,8 +158,8 @@ void testcase()
 {
     g_kw_list = g_list_append(g_kw_list, "he");
     g_kw_list = g_list_append(g_kw_list, "she");
-    g_kw_list = g_list_append(g_kw_list, "his");
-    g_kw_list = g_list_append(g_kw_list, "hers");
+    g_kw_list = g_list_append(g_kw_list, "eah");
+    g_kw_list = g_list_append(g_kw_list, "rbc");
 }
 
 void print_set(ln* L)
@@ -258,8 +262,8 @@ void acch()
             int j=0;
             while(dept[state]>j&&j<len)
             {
-                state=scanAC(state,window[w-d+j],&status);
-                window[w]=window[w-d+j];
+                state=scanAC(state,window[w-d],&status);
+                window[w]=window[w-d];
                 st[w++]=status;
                 j++;
             }
@@ -269,31 +273,40 @@ void acch()
             int p;
             while(k<len-1)
             {
+                k=len-1;
                 for(fk=j;fk<len;fk++)
                 {
                     if(st[w-d+fk]==0)//match
+					{
+					k=fk;
                     break;
+					}
                 }
-                k=fk;
-
+                
+                p=j;
                 for(fp=k;fp>=j;fp--)
                 {
                     if(st[w-d+fp]==2)
+					{
+					p=fp;
                     break;
+					}
+						
                 }
-                p=fp;
+                
                 if(j<(p-CDepth+1))
                 {
                 while(j<(p-CDepth+1))
                 {
-                    window[w++]=window[w-d+j];
+                    window[w]=window[w-d];
+					 w++;
                     j++;
                 }
                 state=0;
                 for(j=(p-CDepth+1);j<p;j++)
                 {
-                    state=scanAC(state,window[w-d+j],&status);
-                    window[w]=window[w-d+j];
+                    state=scanAC(state,window[w-d],&status);
+                    window[w]=window[w-d];
                     st[w++]=status;
 
                 }
@@ -301,8 +314,8 @@ void acch()
                 int l;
                 for(l=j;l<=k;l++)
                 {
-                    state=scanAC(state,window[w-d+l],&status);
-                    window[w]=window[w-d+l];
+                    state=scanAC(state,window[w-d],&status);
+                    window[w]=window[w-d];
                     st[w++]=status;
                 }
                 j=k+1;
@@ -327,9 +340,21 @@ int main()
     testcase();
     initial_goto();
     buildFail();
-    ac("aherbscdeshee");
+	char* str="aherbscdesheaherbc";
+    ac("aherbscdesheaherbc");
     //check_dept();
-
+	
+	printf("acch:\n");
+    last_lit=14;
+	for(i=0;i<12;i++)
+		l_buf[i]=str[i];
+	l_buf[12]=2;
+	l_buf[13]='c';
+	for(i=0;i<14;i++)
+		d_buf[i]=0;
+	d_buf[12]=12;
+	acch();
+	printf("window:%s\n",window);
     return 0;
 }
 
